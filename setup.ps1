@@ -118,9 +118,14 @@ $roamingClaude = Join-Path $env:APPDATA "Claude"
 
 $configPath = $null
 $candidates = @(
-    (Join-Path $roamingClaude "claude_desktop_config.json"),
-    (Join-Path $env:LOCALAPPDATA "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json")
-)
+    # Instalacion clasica
+    (Join-Path $env:APPDATA "Claude\claude_desktop_config.json"),
+    # Instalacion Microsoft Store - buscar dinamicamente sin hardcodear el package name
+    (Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Claude_*" -ErrorAction SilentlyContinue |
+        Select-Object -First 1 |
+        ForEach-Object { Join-Path $_.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json" })
+) | Where-Object { $_ }
+
 foreach ($c in $candidates) {
     try {
         $dir = Split-Path $c
@@ -129,6 +134,7 @@ foreach ($c in $candidates) {
         [System.IO.File]::WriteAllText($testFile, "test")
         Remove-Item $testFile -Force
         $configPath = $c
+        Write-Host "[OK] Ruta de Claude Desktop: $dir" -ForegroundColor Green
         break
     } catch { continue }
 }
@@ -137,6 +143,7 @@ if (-not $configPath) {
     $configPath = $candidates[0]
     $dir = Split-Path $configPath
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    Write-Host "[AVISO] Usando ruta por defecto: $dir" -ForegroundColor Yellow
 }
 
 $config = $null

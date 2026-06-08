@@ -65,7 +65,11 @@ Si aparece un número de versión (por ejemplo `v20.11.0`), ya está instalado.
 
 ## Instalación (opción recomendada - automática)
 
-Hacer clic derecho sobre el archivo `setup.ps1` que está en la carpeta raíz del repositorio y seleccionar **"Ejecutar con PowerShell"**. El script instala las dependencias y configura Claude Desktop automáticamente.
+1. Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**
+2. Extraer el ZIP en cualquier carpeta. GitHub crea una carpeta `mcp-legal-ar-main` al extraerlo - podés dejarla así o renombrarla
+3. Dentro de esa carpeta, hacer clic derecho en `setup.ps1` y seleccionar **"Ejecutar con PowerShell"**
+
+El script detecta automáticamente la ubicación del repositorio y configura Claude Desktop.
 
 ---
 
@@ -73,7 +77,7 @@ Hacer clic derecho sobre el archivo `setup.ps1` que está en la carpeta raíz de
 
 ### Paso 1 - Descargar el repositorio
 
-Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**. Extraer el ZIP en una carpeta, por ejemplo `C:\mcp-legal-ar`.
+Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**. Extraer el ZIP en una carpeta. GitHub descarga el ZIP con el nombre `mcp-legal-ar-main.zip` y crea una carpeta `mcp-legal-ar-main` al extraerlo - renombrala a `mcp-legal-ar` o al nombre que prefieras. En los pasos siguientes usamos `C:\mcp-legal-ar` como ejemplo; reemplazálo por la ruta real donde extrajiste el ZIP.
 
 ### Paso 2 - Instalar dependencias
 
@@ -85,15 +89,25 @@ npm install
 npm install --prefix servers\legal-mcp
 ```
 
-> Si extrajiste el ZIP en otra carpeta, reemplazá `C:\mcp-legal-ar` por esa ruta.
 
 ### Paso 3 - Configurar Claude Desktop
 
-Abrir el archivo de configuración de Claude Desktop. Se encuentra en:
+Abrir el archivo de configuración de Claude Desktop. La ruta depende de cómo instalaste Claude:
 
+**Instalación clásica:**
 ```
 C:\Users\TU_USUARIO\AppData\Roaming\Claude\claude_desktop_config.json
 ```
+
+**Instalación Microsoft Store:**
+
+Abrí PowerShell y ejecutá:
+```
+Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Claude_*" | Select-Object FullName
+```
+Eso te muestra la carpeta exacta. El config está en `LocalCache\Roaming\Claude\claude_desktop_config.json` dentro de esa carpeta.
+
+Si no sabés cuál es la tuya, abrí el Explorador de archivos, pegá `%APPDATA%\Claude` en la barra de dirección y presioná Enter. Si abre una carpeta, es la instalación clásica. Si da error, es la instalación Microsoft Store.
 
 Reemplazar `TU_USUARIO` con el nombre de usuario de Windows. Abrir ese archivo con el Bloc de notas y agregar dentro de `"mcpServers"`:
 
