@@ -43,6 +43,9 @@ const TIMEOUTS = {
     // infoleg tiene cadena de fallbacks con Puppeteer (render JS de
     // argentina.gob.ar) que no entra en 20s.
     infoleg:  90000,
+    // portalpjn HITL: arranque de Chromium + login del usuario en SSO +
+    // posible reload para renovar token.
+    portalpjn: 90000,
 };
 
 // ---------------------------------------------------------------------------
@@ -77,6 +80,10 @@ const CONNECTORS = [
     // malformada: el termino va en `r`, no en `s` (fix en saij-mcp/build/services/).
     { prefix: "saij",         command: NODE, args: [path.join(LEGAL_MCP, "build", "saij.js")],         cwd: LEGAL_MCP },
     { prefix: "scba",         command: NODE, args: [path.join(LEGAL_MCP, "build", "scba.js")],         cwd: LEGAL_MCP }, // TLS manejado internamente via https.Agent aislado
+    // portalpjn NUEVO 11/6/26 (conector 12): feed de novedades D/N del abogado
+    // logueado + PDF por evento, via API REST api.pjn.gov.ar capturada en vivo
+    // (docs/portalpjn-api.md). Login SIEMPRE del usuario (HITL, SSO Keycloak).
+    { prefix: "portalpjn",    command: NODE, args: [path.join(LEGAL_MCP, "build", "portalpjn.js")],    cwd: LEGAL_MCP },
 ];
 
 class ChildMcpClient {

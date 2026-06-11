@@ -1,6 +1,6 @@
 # mcp-legal-ar
 
-11 conectores jurídicos argentinos operativos integrados en uno solo. 100% local. Sin servidores externos de terceros. Código abierto y auditable.
+11 conectores jurídicos argentinos integrados en uno solo. Sin servidores externos de terceros. 100% local. Código abierto y auditable.
 
 ---
 
@@ -8,11 +8,17 @@
 
 Claude Desktop puede conectarse a bases de datos externas a través de conectores llamados MCP. Este repositorio instala un único conector que le da acceso simultáneo a las principales fuentes jurídicas argentinas:
 
-- Jurisprudencia: JUBA, SCBA, SAIJ (federal/nacional/provincial), PJN Jurisprudencia (sumarios de cámaras federales)
-- Boletines oficiales: BORA, BOPBA
-- Legislación: InfoLEG, Normativa PBA, SAIJ
-- Doctrina administrativa y fiscal: PTN, TFN
-- Expedientes federales: PJN Consulta (vía sesión HITL)
+- **JUBA** - Jurisprudencia de la Suprema Corte de Buenos Aires y cámaras departamentales de la Provincia, con búsqueda por texto libre, tribunal, carátula y período.
+- **SCBA** - Sentencias y resoluciones completas de la Suprema Corte de Buenos Aires, acceso directo al texto del fallo.
+- **SAIJ** - Sistema Argentino de Información Jurídica del Ministerio de Justicia de la Nación: más de 330.000 documentos entre jurisprudencia federal, nacional y provincial, legislación, doctrina y dictámenes.
+- **PJN Jurisprudencia** - Sumarios de fallos de cámaras nacionales y federales del sistema del Consejo de la Magistratura (sj.pjn.gov.ar), con filtros por materia, sala y período.
+- **BORA** - Boletín Oficial de la República Argentina: normas nacionales, actos administrativos, edictos y avisos oficiales publicados desde 1938.
+- **BOPBA** - Boletín Oficial de la Provincia de Buenos Aires: legislación y actos administrativos provinciales.
+- **InfoLEG** - Base normativa del Ministerio de Justicia de la Nación con el texto actualizado de leyes nacionales, decretos y resoluciones, incluyendo histórico de modificaciones.
+- **Normativa PBA** - Legislación de la Provincia de Buenos Aires: leyes, decretos y resoluciones provinciales con texto vigente.
+- **PTN** - Dictámenes de la Procuración del Tesoro de la Nación, fuente principal de doctrina en derecho administrativo federal.
+- **TFN** - Jurisprudencia del Tribunal Fiscal de la Nación en materia impositiva y aduanera.
+- **PJN Consulta** - Estado procesal de expedientes ante el fuero federal, con búsqueda por parte demandada vía sesión de navegador (captcha resuelto por el usuario).
 
 Sin este hub, cada fuente requeriría instalar y configurar un conector por separado. Con este hub, se instala uno solo y las 11 fuentes quedan disponibles al mismo tiempo.
 
@@ -181,6 +187,7 @@ Algunos conectores dependen de que las webs oficiales estén disponibles. Si una
 | 9 | **PJN Consulta** | Estado procesal de expedientes federales (reescrito 10/6/26: las consultas corren dentro del navegador HITL; captcha resuelto por el usuario; por parte solo DEMANDADO, límite del portal público) | 14 | reescritura propia (estructura original: [voftec](https://github.com/voftec)) |
 | 10 | **SAIJ** | Sistema Argentino de Información Jurídica (jurisprudencia, legislación, doctrina y dictámenes; 330.000+ documentos) | 15 | [Joaquin Escalante](https://github.com/) (reparado 10/6/26: el término de búsqueda va en `r`, no en `s`) |
 | 11 | **PJN Jurisprudencia** | Sumarios de fallos de cámaras nacionales y federales (Sistema de Jurisprudencia del Consejo de la Magistratura, sj.pjn.gov.ar) | 18 | reescritura propia 10/6/26 (API REST + captcha inyectado vía HITL) |
+| 12 | **Portal PJN** | Feed de novedades del abogado logueado (despachos D y cédulas N de todas sus causas) + descarga del PDF de cada evento, vía API REST de api.pjn.gov.ar. Login siempre del usuario (HITL, SSO). No presenta escritos por diseño. Ver `docs/portalpjn-api.md` | 7 | desarrollo propio 11/6/26 (API capturada en vivo) |
 
 ---
 
@@ -221,6 +228,6 @@ Los repositorios originales de Voftec ya no están disponibles públicamente. La
 
 Las licencias y atribuciones de todos los conectores de terceros están reunidas en **[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)**, conforme exige MIT (inclusión del texto de licencia en las redistribuciones).
 
-> **Nota sobre los `LICENSE` de Voftec:** el archivo `LICENSE` que Voftec distribuía en cada repo contenía el texto MIT **sin** la línea "Copyright (c) año titular". Se preserva tal cual en `THIRD_PARTY_NOTICES.md`, con la autoría atribuida a Voftec por nombre. SAIJ (en desarrollo) es de **Joaquin Escalante** (MIT con copyright 2026), no de Voftec. Falta incorporar el texto exacto del `LICENSE` de SCBA desde el repo de FacundoEmanuel (sigue disponible).
+> **Nota sobre los `LICENSE` de Voftec:** el archivo `LICENSE` que Voftec distribuía en cada repo contenía el texto MIT **sin** la línea "Copyright (c) año titular". Se preserva tal cual en `THIRD_PARTY_NOTICES.md`, con la autoría atribuida a Voftec por nombre. SAIJ es de **Joaquin Escalante** (MIT con copyright 2026), no de Voftec. SCBA no tiene archivo `LICENSE`; la declaración de licencia consta en el README del repo de FacundoEmanuel ("MIT - libre para usar, modificar y distribuir"); el texto estándar MIT con atribución al autor figura en `THIRD_PARTY_NOTICES.md`.
 
 El crédito a los autores originales se mantiene en la sección "Créditos" y en "Fuentes disponibles".
