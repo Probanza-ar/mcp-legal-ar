@@ -67,6 +67,6 @@ de que este software fue creado por Cristian Aboitiz y que la fecha de
 primera publicacion figura en el historial de commits del repositorio
 (github.com/cristianaboitiz-eng/).
 
-Se recomienda complementar esta proteccion con deposito en la
-**Direccion Nacional del Derecho de Autor (DNDA)** y, para la
-denominacion, con solicitud de registro de marca ante el **INPI**.
+---
+
+Copyright (c) 2024-2026 Cristian Aboitiz. Todos los derechos reservados.
