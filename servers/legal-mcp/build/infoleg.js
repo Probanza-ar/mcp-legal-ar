@@ -44,6 +44,27 @@ function assertNotWafPage(html, url) {
         throw wafError;
     }
 }
+function assertServicioDisponible(html, url) {
+    // El buscador de argentina.gob.ar devuelve "Servicio momentaneamente no
+    // disponible" (incluso con HTTP 200) cuando su backend esta caido o throttlea
+    // la IP. Distinguirlo de un "0 resultados" real evita reportar una busqueda
+    // vacia enganosa. Verificado 16/6/26 (la leyenda aparece tambien en el navegador).
+    const plain = String(html)
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .trim()
+        .toLowerCase();
+    if (plain.includes("servicio momentaneamente no disponible")) {
+        const downError = new Error(`El servicio de busqueda de argentina.gob.ar respondio ` +
+            `"Servicio momentaneamente no disponible" (${url}). Es una caida o throttle del ` +
+            `portal oficial, no un error del conector ni una busqueda sin resultados. ` +
+            `Reintentar mas tarde; el texto por ID via servicios.infoleg sigue disponible.`);
+        downError.isUpstreamDown = true;
+        throw downError;
+    }
+}
 const ARGENTINA_BASE_URL = "https://www.argentina.gob.ar";
 // NOTA: el "geoblock" de InfoLEG resulto ser un mito. servicios.infoleg.gob.ar
 // responde desde cualquier IP. Los errores reales son: (a) URL estatica mal
@@ -172,13 +193,30 @@ function normalizeTipoNorma(tipo) {
         "decision administrativa": "decisiones_administrativas",
         "decisiones administrativas": "decisiones_administrativas"
     };
-    return known[value] || tipo;
+    if (known[value])
+        return known[value];
+    // Fallback por matcheo parcial: cubre variantes como "Resolución General"
+    // (AFIP/ARCA), "Resolución Conjunta", etc., que el catálogo de argentina.gob.ar
+    // agrupa bajo el slug genérico. Sin esto el POST recibe un tipo_norma inválido
+    // y el server devuelve 0 (bug T2: RG 4352/2018 -> 0).
+    if (/resoluc/.test(value))
+        return "resoluciones";
+    if (/decreto/.test(value))
+        return "decretos";
+    if (/disposic/.test(value))
+        return "disposiciones";
+    if (/decision/.test(value))
+        return "decisiones_administrativas";
+    if (/\bley(es)?\b/.test(value))
+        return "leyes";
+    return tipo;
 }
 async function fetchOfficialHtml(url) {
     const response = await axios.get(url, {
         httpsAgent,
         headers: OFFICIAL_HEADERS,
-        responseType: "arraybuffer"
+        responseType: "arraybuffer",
+        timeout: 12000 // evita el cuelgue indefinido que el root mata a los 20s
     });
     const contentType = String(response.headers["content-type"] || "").toLowerCase();
     const charsetMatch = contentType.match(/charset=([^;]+)/);
@@ -348,12 +386,14 @@ async function searchNormativaViaPost(params) {
             "Origin": ARGENTINA_BASE_URL
         },
         responseType: "arraybuffer",
-        maxRedirects: 5
+        maxRedirects: 5,
+        timeout: 12000 // evita el cuelgue indefinido que el root mata a los 20s
     });
     const contentType = String(response.headers["content-type"] || "").toLowerCase();
     const charset = contentType.match(/charset=([^;]+)/)?.[1]?.trim() || "utf-8";
     const html = new TextDecoder(charset.includes("8859") ? "latin1" : "utf-8").decode(response.data);
     assertNotWafPage(html, url);
+    assertServicioDisponible(html, url);
     return { url, ...parseNormativaListHtml(html, { allowAnchorScan: true }) };
 }
 export async function searchNormativaOfficial(params) {
@@ -363,7 +403,16 @@ export async function searchNormativaOfficial(params) {
     let staticError = null;
     let metodo = "POST formulario oficial";
     try {
-        const post = await searchNormativaViaPost(params);
+        let post = await searchNormativaViaPost(params);
+        // Reintento sin tipo_norma: si el slug del tipo no coincide con el catálogo
+        // el server devuelve 0 aunque la norma exista. numero+anio suele ser único.
+        if (post.results.length === 0 && !post.countText && params.tipoNorma && (params.numeroNorma || params.anioNorma)) {
+            const sinTipo = await searchNormativaViaPost({ ...params, tipoNorma: undefined });
+            if (sinTipo.results.length > 0 || sinTipo.countText) {
+                post = sinTipo;
+                metodo = "POST sin filtro de tipo (reintento)";
+            }
+        }
         if (post.results.length > 0 || post.countText) {
             return { url: post.url, countText: post.countText, results: post.results, metodo };
         }
@@ -371,6 +420,8 @@ export async function searchNormativaOfficial(params) {
         parsed = { countText: post.countText, results: post.results };
     }
     catch (err) {
+        if (err.isUpstreamDown)
+            throw err; // servicio oficial caido: el fallback Puppeteer no ayuda
         staticError = err;
         console.error(`POST del buscador fallo: ${err.message}`);
     }
@@ -551,6 +602,29 @@ async function resolveNormaDetailUrl(args) {
             return found.enlaceResumen;
     }
     throw new Error("No se pudo resolver la URL oficial de resumen. Pasa urlNorma o combina tipoNorma/numeroNorma/anioNorma.");
+}
+// Ficha derivada del lado InfoLEG (axios, sin render JS). Se usa cuando solo se
+// conoce el idNorma: la ficha por ID desnudo de argentina.gob.ar es inestable
+// (500 / timeout por render). Esta ruta reusa el mismo origen estatico que ya
+// hace andar obtener_texto_norma.
+async function metadatosDesdeInfoLeg(idNorma) {
+    const { text, url } = await fetchCleanText(idNorma, undefined, "actualizado");
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    // Primera linea con bloque de mayusculas = encabezado de la norma (tipo/numero).
+    const titulo = lines.slice(0, 12).find((l) => /[A-ZÁÉÍÓÚÑ]{4,}/.test(l)) || lines[0] || "";
+    const verNorma = `https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=${idNorma}`;
+    let out = `# Metadatos de la norma (InfoLEG)\n\n`;
+    out += `* **idNorma InfoLEG:** \`${idNorma}\`\n`;
+    if (titulo)
+        out += `* **Encabezado (derivado del texto):** ${titulo}\n`;
+    out += `* **Ficha InfoLEG:** ${verNorma}\n`;
+    out += `* **Texto consultado:** ${url}\n`;
+    out += `* **Texto actualizado:** ${getInfoLegStaticUrl(idNorma, "actualizado")}\n`;
+    out += `* **Texto original:** ${getInfoLegStaticUrl(idNorma, "original")}\n`;
+    out += `* **Ficha Argentina.gob.ar:** ${ARGENTINA_BASE_URL}/normativa/nacional/${idNorma}\n`;
+    out += `\n> Ficha derivada del origen InfoLEG (la ficha por ID desnudo de argentina.gob.ar es inestable). ` +
+        `Para organismo/dependencia y fechas oficiales completas, pasar \`urlNorma\` con el slug canonico (ej. .../resolucion-4352-2018-${idNorma}).`;
+    return { content: [{ type: "text", text: out.trim() }] };
 }
 export function getInfoLegRange(idStr) {
     // InfoLEG agrupa los anexos en carpetas de 5000 IDs (ej. 295000-299999),
@@ -981,6 +1055,35 @@ async function fetchCleanText(idNorma, textoHtmlManual, tipoTexto = "actualizado
     }
     throw buildConnectionError(lastError, candidates[0]);
 }
+// Códigos troncales (Aduanero, etc.): el texact.htm NO es el articulado sino un
+// ÍNDICE con enlaces relativos a sub-documentos hermanos (Ley22415_*.htm). Esta
+// función detecta ese caso y resuelve los sub-documentos a URLs absolutas.
+// Fix 16/6/2026 (T6): antes obtener_texto_norma devolvía solo el índice.
+async function fetchCodigoSubdocs(idNorma, tipoTexto = "actualizado") {
+    const baseUrl = getInfoLegStaticUrl(idNorma, tipoTexto);
+    const html = await fetchInfoLegStaticHtml(baseUrl);
+    const $ = cheerio.load(html);
+    const dir = baseUrl.replace(/\/[^/]*$/, "/");
+    const entries = [];
+    const seen = new Set();
+    $("a[href]").each((_, a) => {
+        const href = ($(a).attr("href") || "").trim();
+        // Solo sub-documentos: relativos, .htm, mismo directorio (no verNorma ni absolutos).
+        if (!href || /^https?:|^\/\/|^\/|^#|^mailto:|verNorma/i.test(href))
+            return;
+        if (!/\.html?$/i.test(href))
+            return;
+        const key = href.toLowerCase();
+        if (seen.has(key))
+            return;
+        seen.add(key);
+        const label = normalizeText($(a).text()) || href.replace(/\.html?$/i, "");
+        entries.push({ label, file: href, seccion: href.replace(/\.html?$/i, ""), url: dir + href });
+    });
+    // Un articulado normal repite "ARTICULO N" muchas veces; un índice casi nunca.
+    const articuloCount = ($.root().text().match(/ART[IÍ]CULO\s+\d/gi) || []).length;
+    return { baseUrl, dir, entries, articuloCount };
+}
 export function extractTeleologicalJustification(text) {
     const lines = text.split("\n");
     let extracting = false;
@@ -1148,6 +1251,40 @@ export function registerAllTools(server) {
         pagina: z.number().optional().default(1).describe("Página de resultados")
     }, async (args) => {
         try {
+            // Criterio puramente numérico + tipo o año: el usuario quiere una norma
+            // por número (ej. "4352" + Resolución + 2018), no una búsqueda de texto.
+            // El Solr ordena por fecha y entierra la norma vieja entre novedades; la
+            // búsqueda estructurada la resuelve. (Fix T3.)
+            const criterioNumerico = /^\d{1,6}$/.test(args.criterio.trim());
+            if (criterioNumerico && (args.tipoNorma || args.anioNorma) && !args.numeroNorma) {
+                try {
+                    const est = await searchNormativaOfficial({
+                        jurisdiccion: "nacional",
+                        tipoNorma: args.tipoNorma,
+                        numeroNorma: args.criterio.trim(),
+                        anioNorma: args.anioNorma,
+                        pagina: args.pagina || 1
+                    });
+                    if (est.results.length > 0) {
+                        let output = `# Resultados de Búsqueda en InfoLEG\n\n`;
+                        output += `Se encontraron **${est.results.length}** resultados para ${args.tipoNorma || "norma"} N° ${args.criterio.trim()}${args.anioNorma ? `/${args.anioNorma}` : ""} (búsqueda estructurada):\n\n`;
+                        est.results.forEach((r, idx) => {
+                            output += `### ${idx + 1}. ${r.titulo || r.normativa}\n`;
+                            if (r.id)
+                                output += `* **ID de InfoLEG (idNorma):** \`${r.id}\`\n`;
+                            output += `* **Enlace Oficial:** [Ver en Argentina.gob.ar](${r.enlaceResumen || r.enlace})\n`;
+                            if (r.organismo)
+                                output += `* **Organismo:** ${r.organismo}\n`;
+                            output += `\n---\n\n`;
+                        });
+                        output += `💡 *Para obtener el texto completo, ejecutá "obtener_texto_norma" con el ID provisto.*`;
+                        return { content: [{ type: "text", text: output }] };
+                    }
+                }
+                catch (_estErr) {
+                    // si la estructurada falla, seguir con el Solr de texto libre
+                }
+            }
             // Frase exacta: el motor Solr de InfoLEG acepta comillas dobles.
             // Sin ellas, un criterio multipalabra matchea cada palabra en
             // cualquier parte del texto (ruido masivo, verificado 10/6/26).
@@ -1247,9 +1384,10 @@ export function registerAllTools(server) {
     server.tool("obtener_texto_norma", "Recupera el cuerpo verbatim articulado de una norma nacional por su ID en formato Markdown limpio.", {
         idNorma: stringOrNumber.describe("ID único de la norma en InfoLEG (ej. '296831')"),
         tipoTexto: z.enum(["actualizado", "original"]).optional().default("actualizado").describe("Variante del texto: 'actualizado' (con reformas) o 'original' (publicación inicial)"),
-        textoHtmlManual: z.string().optional().describe("Texto completo de la norma copiado directamente desde el navegador web (útil si hay inconvenientes con la descarga automática)")
+        textoHtmlManual: z.string().optional().describe("Texto completo de la norma copiado directamente desde el navegador web (útil si hay inconvenientes con la descarga automática)"),
+        seccion: z.string().optional().describe("Solo para códigos fragmentados (ej. Código Aduanero): token de la sección a traer, p. ej. 'Titulo_preliminar' o 'S12_TituloI'. Sin esto, un código devuelve su índice navegable con las secciones disponibles.")
     }, async (args) => {
-        const { idNorma, tipoTexto = "actualizado", textoHtmlManual } = args;
+        const { idNorma, tipoTexto = "actualizado", textoHtmlManual, seccion } = args;
         if (textoHtmlManual && textoHtmlManual.trim().length > 0) {
             console.error(`Using manually injected HTML for InfoLEG ID ${idNorma}`);
             try {
@@ -1265,6 +1403,41 @@ export function registerAllTools(server) {
             catch (err) {
                 return { content: [{ type: "text", text: `Error al procesar el texto manual: ${err.message}` }], isError: true };
             }
+        }
+        // Códigos fragmentados: el texact.htm puede ser un índice de sub-documentos.
+        try {
+            const indice = await fetchCodigoSubdocs(idNorma, tipoTexto);
+            if (indice.entries.length >= 3 && indice.articuloCount < 5) {
+                if (seccion) {
+                    const needle = String(seccion).toLowerCase();
+                    const match = indice.entries.find((e) => e.file.toLowerCase().includes(needle) || e.label.toLowerCase().includes(needle));
+                    if (!match) {
+                        let out = `# Sección no encontrada (código InfoLEG ${idNorma})\n\n`;
+                        out += `No hay una sección que coincida con "${seccion}". Secciones disponibles:\n\n`;
+                        indice.entries.forEach((e) => { out += `- \`${e.seccion}\` — ${e.label}\n`; });
+                        return { content: [{ type: "text", text: out }], isError: true };
+                    }
+                    console.error(`Fetching InfoLEG code section from: ${match.url}`);
+                    const subHtml = await fetchInfoLegStaticHtml(match.url);
+                    let out = `# Código (InfoLEG ${idNorma}) — Sección: ${match.label}\n\n`;
+                    out += `* **Sección:** \`${match.seccion}\`\n`;
+                    out += `* **Fuente Oficial:** [Enlace de descarga](${match.url})\n`;
+                    out += `\n## Cuerpo Normativo\n\n${cleanInfoLegHtml(subHtml)}`;
+                    return { content: [{ type: "text", text: out }] };
+                }
+                let out = `# Texto de la Norma (InfoLEG ${idNorma}) — ÍNDICE de código fragmentado\n\n`;
+                out += `Esta norma se publica dividida en ${indice.entries.length} sub-documentos; el \`texact.htm\` es solo el índice. ` +
+                    `Para traer el articulado de una sección, llamá de nuevo a \`obtener_texto_norma\` con el mismo \`idNorma\` y el parámetro \`seccion\`.\n\n`;
+                out += `* **Índice oficial:** [${indice.baseUrl}](${indice.baseUrl})\n\n`;
+                out += `## Secciones disponibles\n\n`;
+                indice.entries.forEach((e) => {
+                    out += `- **${e.label}** — \`seccion="${e.seccion}"\` — [texto](${e.url})\n`;
+                });
+                return { content: [{ type: "text", text: out }] };
+            }
+        }
+        catch (_indiceErr) {
+            // No es un código fragmentado o el índice no se pudo leer: seguir con el flujo normal.
         }
         const targetUrl = getInfoLegStaticUrl(idNorma, tipoTexto);
         console.error(`Fetching InfoLEG Static Text from: ${targetUrl}`);
@@ -1397,7 +1570,7 @@ export function registerAllTools(server) {
             return { content: [{ type: "text", text: formatResultsList(`Busqueda de ${args.tipoNorma} ${args.numeroNorma}${args.anioNorma ? `/${args.anioNorma}` : ""}`, url, results) }] };
         }
         catch (error) {
-            if (error.isGeoblock) {
+            if (error.isGeoblock || error.isUpstreamDown) {
                 return { content: [{ type: "text", text: error.message }], isError: true };
             }
             return { content: [{ type: "text", text: `Error al buscar por tipo/numero/anio: ${error.message}` }], isError: true };
@@ -1497,6 +1670,17 @@ export function registerAllTools(server) {
         anioNorma: stringOrNumberOptional
     }, async (args) => {
         try {
+            // Ruta confiable: con idNorma (y sin urlNorma) evitar la ficha por ID
+            // desnudo de argentina.gob.ar (500/timeout por render JS) y derivar
+            // del origen InfoLEG (axios).
+            if (args.idNorma && !args.urlNorma) {
+                try {
+                    return await metadatosDesdeInfoLeg(args.idNorma);
+                }
+                catch (infolegErr) {
+                    console.error(`Metadatos via InfoLEG fallaron (${infolegErr.message}), intentando argentina.gob.ar`);
+                }
+            }
             const url = await resolveNormaDetailUrl(args);
             const detail = await fetchNormaDetailByUrl(url);
             let output = `# Metadatos oficiales de la norma\n\n`;

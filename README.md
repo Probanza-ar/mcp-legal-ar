@@ -69,7 +69,7 @@ Antes de instalar, necesitás tener en tu computadora:
 1. **Claude Desktop** - Descargar desde [claude.ai/download](https://claude.ai/download)
 2. **Node.js** - Descargar desde [nodejs.org](https://nodejs.org) (elegir la versión LTS)
 
-Para verificar si Node.js ya está instalado, abrir el símbolo del sistema (CMD) y ejecutar:
+Para verificar si Node.js ya está instalado, abrir el símbolo del sistema (CMD en Windows, Terminal en Mac/Linux) y ejecutar:
 
 ```
 node --version
@@ -83,7 +83,15 @@ Si aparece un número de versión (por ejemplo `v20.11.0`), ya está instalado.
 
 1. Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**
 2. Extraer el ZIP en cualquier carpeta. GitHub crea una carpeta `mcp-legal-ar-main` al extraerlo - podés dejarla así o renombrarla
-3. Dentro de esa carpeta, hacer clic derecho en `setup.ps1` y seleccionar **"Ejecutar con PowerShell"**
+3. Ejecutar el script de instalación según tu sistema operativo:
+
+**Windows:** hacer clic derecho en `setup.ps1` y seleccionar **"Ejecutar con PowerShell"**
+
+**Mac / Linux:** abrir la Terminal, navegar a la carpeta extraída y ejecutar:
+
+```bash
+bash setup.sh
+```
 
 El script detecta automáticamente la ubicación del repositorio y configura Claude Desktop.
 
@@ -93,11 +101,11 @@ El script detecta automáticamente la ubicación del repositorio y configura Cla
 
 ### Paso 1 - Descargar el repositorio
 
-Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**. Extraer el ZIP en una carpeta. GitHub descarga el ZIP con el nombre `mcp-legal-ar-main.zip` y crea una carpeta `mcp-legal-ar-main` al extraerlo - renombrala a `mcp-legal-ar` o al nombre que prefieras. En los pasos siguientes usamos `C:\mcp-legal-ar` como ejemplo; reemplazálo por la ruta real donde extrajiste el ZIP.
+Hacer clic en el botón verde **Code** arriba a la derecha y seleccionar **Download ZIP**. Extraer el ZIP en una carpeta. GitHub descarga el ZIP con el nombre `mcp-legal-ar-main.zip` y crea una carpeta `mcp-legal-ar-main` al extraerlo - renombrala a `mcp-legal-ar` o al nombre que prefieras. En los pasos siguientes usamos `C:\mcp-legal-ar` (Windows) o `~/mcp-legal-ar` (Mac/Linux) como ejemplo; reemplazálo por la ruta real donde extrajiste el ZIP.
 
 ### Paso 2 - Instalar dependencias
 
-Abrir el símbolo del sistema (CMD) y ejecutar:
+**Windows** - Abrir CMD y ejecutar:
 
 ```
 cd C:\mcp-legal-ar
@@ -105,16 +113,24 @@ npm install
 npm install --prefix servers\legal-mcp
 ```
 
+**Mac / Linux** - Abrir Terminal y ejecutar:
+
+```bash
+cd ~/mcp-legal-ar
+npm install
+npm install --prefix servers/legal-mcp
+```
+
 ### Paso 3 - Configurar Claude Desktop
 
-Abrir el archivo de configuración de Claude Desktop. La ruta depende de cómo instalaste Claude:
+Abrir el archivo de configuración de Claude Desktop. La ruta depende del sistema operativo y de cómo instalaste Claude:
 
-**Instalación clásica:**
+**Windows - Instalación clásica:**
 ```
 C:\Users\TU_USUARIO\AppData\Roaming\Claude\claude_desktop_config.json
 ```
 
-**Instalación Microsoft Store:**
+**Windows - Instalación Microsoft Store:**
 
 Abrí PowerShell y ejecutá:
 ```
@@ -124,8 +140,19 @@ Eso te muestra la carpeta exacta. El config está en `LocalCache\Roaming\Claude\
 
 Si no sabés cuál es la tuya, abrí el Explorador de archivos, pegá `%APPDATA%\Claude` en la barra de dirección y presioná Enter. Si abre una carpeta, es la instalación clásica. Si da error, es la instalación Microsoft Store.
 
-Reemplazar `TU_USUARIO` con el nombre de usuario de Windows. Abrir ese archivo con el Bloc de notas y agregar dentro de `"mcpServers"`:
+**Mac:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
 
+**Linux:**
+```
+~/.config/Claude/claude_desktop_config.json
+```
+
+Reemplazar `TU_USUARIO` (Windows) con el nombre de usuario real. Abrir el archivo con cualquier editor de texto y agregar dentro de `"mcpServers"`:
+
+**Windows:**
 ```json
 "mcp-legal-ar": {
   "command": "node",
@@ -133,7 +160,15 @@ Reemplazar `TU_USUARIO` con el nombre de usuario de Windows. Abrir ese archivo c
 }
 ```
 
-El archivo completo debería quedar así:
+**Mac / Linux:**
+```json
+"mcp-legal-ar": {
+  "command": "node",
+  "args": ["/Users/TU_USUARIO/mcp-legal-ar/build/index.js"]
+}
+```
+
+El archivo completo debería quedar así (ejemplo Windows):
 
 ```json
 {
@@ -146,11 +181,50 @@ El archivo completo debería quedar así:
 }
 ```
 
-> **Importante:** usar doble barra invertida `\\` en todas las rutas del JSON. La carpeta puede llamarse como quieras; lo que importa es que la ruta en `args` apunte al `build\index.js` de donde extrajiste el repositorio.
+> **Windows:** usar doble barra invertida `\\` en todas las rutas del JSON. **Mac/Linux:** usar barra simple `/`. La carpeta puede llamarse como quieras; lo que importa es que la ruta en `args` apunte al `build/index.js` de donde extrajiste el repositorio.
 
 ### Paso 4 - Reiniciar Claude Desktop
 
-Cerrar Claude Desktop completamente: click derecho en el ícono de la bandeja del sistema (esquina inferior derecha) y seleccionar **Salir**. Volver a abrirlo. El conector `mcp-legal-ar` debería aparecer en la lista de herramientas disponibles.
+**Windows:** hacer clic derecho en el ícono de la bandeja del sistema (esquina inferior derecha) y seleccionar **Salir**. Volver a abrir Claude Desktop.
+
+**Mac:** hacer clic derecho en el ícono del Dock y seleccionar **Salir**. Volver a abrir Claude Desktop.
+
+El conector `mcp-legal-ar` debería aparecer en la lista de herramientas disponibles.
+
+---
+
+## Actualización
+
+Si ya tenías una versión anterior instalada, no hace falta desinstalar nada. El proceso es el mismo que la instalación inicial: reemplaza los archivos y regenera la configuración.
+
+### Opción A - Con Git instalado (recomendada)
+
+Abrir CMD o Terminal en la carpeta del repositorio y ejecutar:
+
+```
+git pull
+npm install
+npm install --prefix servers/legal-mcp
+```
+
+Luego reiniciar Claude Desktop desde la bandeja del sistema.
+
+### Opción B - Sin Git (descarga manual)
+
+1. Descargar el ZIP desde el botón verde **Code → Download ZIP**
+2. Extraer el ZIP sobreescribiendo la carpeta existente (o borrar la carpeta anterior y extraer de cero en el mismo lugar)
+3. Ejecutar el script de instalación según tu sistema:
+
+**Windows:** clic derecho en `setup.ps1` → **"Ejecutar con PowerShell"**
+
+**Mac / Linux:**
+```bash
+bash setup.sh
+```
+
+El script reinstala las dependencias y actualiza la configuración de Claude Desktop. Reiniciar Claude Desktop al terminar.
+
+> **Nota:** si en Windows el doble clic sobre `setup.ps1` abre el Bloc de notas en lugar de ejecutarlo, usá siempre clic derecho → "Ejecutar con PowerShell". Si PowerShell bloquea la ejecución por política, abrir PowerShell como administrador y ejecutar primero: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
 ---
 
@@ -162,7 +236,7 @@ Verificar que el archivo `claude_desktop_config.json` tenga el formato correcto 
 
 **Error al ejecutar `npm install`**
 
-Verificar que Node.js esté instalado correctamente ejecutando `node --version` en CMD. Si da error, reinstalar Node.js desde [nodejs.org](https://nodejs.org).
+Verificar que Node.js esté instalado correctamente ejecutando `node --version` en CMD (Windows) o Terminal (Mac/Linux). Si da error, reinstalar Node.js desde [nodejs.org](https://nodejs.org).
 
 **Algún conector aparece como desconectado**
 

@@ -109,5 +109,6 @@ EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O 
 
 ## Hub `mcp-legal-ar`
 
-El código del proxy/ensamblador (no los conectores) se distribuye bajo Apache 2.0.
-Ver `README.md` → sección "Licencias".
+El código del proxy/ensamblador (no los conectores) se distribuye bajo licencia dual
+(uso no comercial libre con atribución; uso comercial requiere autorización previa).
+Ver `LICENSE-MCAR.md` para los términos completos.

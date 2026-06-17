@@ -21,6 +21,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 const HOME_URL = "https://scw.pjn.gov.ar/scw/home.seam";
 let globalBrowser = null;
@@ -199,9 +201,11 @@ function formatearResultados(res, contexto) {
     return out;
 }
 
-/** Scrapea la pagina de detalle expediente.seam (generico, tolera cambios de ids). */
-async function scrapeExpediente(page) {
-    return page.evaluate(() => {
+/** Scrapea la pagina de detalle expediente.seam (generico, tolera cambios de ids).
+ *  maxFilas: tope de filas por tabla para el render en chat (150). La exportacion
+ *  a boveda (ronda 22) pasa un tope alto para no truncar expedientes largos. */
+async function scrapeExpediente(page, { maxFilas = 150 } = {}) {
+    return page.evaluate((maxFilas) => {
         const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
         const out = { url: location.href, titulo: document.title, encabezado: "", tablas: [] };
         const bodyText = document.body.innerText || "";
@@ -215,10 +219,10 @@ async function scrapeExpediente(page) {
                 .filter((f) => f.some(Boolean))
                 // descarta filas que son solo el header repetido (tablas plantilla vacias)
                 .filter((f) => f.join("|").toLowerCase() !== headerKey && f.join(" ").toLowerCase() !== headerKey.replace(/\|/g, " "));
-            if (filas.length) out.tablas.push({ headers, filas: filas.slice(0, 150), total: filas.length });
+            if (filas.length) out.tablas.push({ headers, filas: filas.slice(0, maxFilas), total: filas.length });
         }
         return out;
-    });
+    }, maxFilas);
 }
 
 function formatearExpediente(det, { soloResoluciones = false } = {}) {
@@ -235,6 +239,121 @@ function formatearExpediente(det, { soloResoluciones = false } = {}) {
     }
     if (soloResoluciones) out += `\n> Filtrado heuristico por TIPO/DESCRIPCION (resolucion, sentencia, auto, interlocutorio, despacho, fallo). Para el listado completo usa obtener_actuaciones.`;
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// EXPORTACION A BOVEDA (eje 1.1 del plan de mejoras, ronda 22).
+// Carpeta por causa, una nota MD por actuacion + nota indice (MOC), todas con
+// frontmatter YAML para Obsidian. Destino default: env LEGAL_BOVEDA o
+// D:\DERECHO\Cerebro Digital\Casos. Las notas contienen DATOS REALES: la
+// anonimizacion (eje 2) es paso posterior y obligatorio antes de subir nada
+// a servicios externos (NotebookLM incluido).
+// ---------------------------------------------------------------------------
+const BOVEDA_DEFAULT = process.env.LEGAL_BOVEDA || "D:\\DERECHO\\Cerebro Digital\\Casos";
+
+const sinAcentos = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "");
+
+/** Nombre seguro para archivo/carpeta Windows + Obsidian (sin \/:*?"<>|#^[]). */
+function slugArchivo(s, max = 60) {
+    const base = sinAcentos(s).replace(/[\\/:*?"<>|#^\[\]]/g, " ").replace(/\s+/g, "-")
+        .replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+    const cortado = base.slice(0, max).replace(/^[-.]+|[-.]+$/g, "");
+    return cortado || "sin-dato";
+}
+
+const yamlVal = (s) => String(s ?? "").replace(/"/g, "'").replace(/\s+/g, " ").trim();
+
+/** dd/mm/aaaa (o dd-mm-aa) -> aaaa-mm-dd; null si no parsea. */
+function fechaAIso(s) {
+    const m = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(String(s || ""));
+    if (!m) return null;
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = (Number(y) > 50 ? "19" : "20") + y;
+    const iso = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    return /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(iso) ? iso : null;
+}
+
+/** Extrae un campo etiquetado del encabezado (texto con whitespace colapsado,
+ *  sin saltos de linea). Corta en la siguiente etiqueta conocida del portal o
+ *  en el menu de solapas (Actuaciones Intervinientes...). Verificado en vivo
+ *  12/06/2026 con CIV 033004/2026. */
+const ETIQUETAS_ENCABEZADO = String.raw`Expediente|Jurisdicci[oó]n|Dependencia|Sit\.?\s*Actual|Situaci[oó]n|Car[aá]tula|Actuaciones|Intervinientes|Vinculados|Recursos|Despachos|Notificaciones|informaci[oó]n`;
+function campoEtiquetado(enc, etiqueta) {
+    const re = new RegExp(`(?:${etiqueta})\\s*:?\\s*(.+?)(?=\\s+(?:${ETIQUETAS_ENCABEZADO})\\b\\s*:?|$)`, "i");
+    const m = re.exec(enc);
+    return m ? m[1].trim() : null;
+}
+
+/** Heuristicas tolerantes sobre el encabezado de expediente.seam. */
+function parseDatosExpediente(det) {
+    const enc = det.encabezado || "";
+    const out = { fuero: null, numero: null, anio: null, caratula: null, dependencia: null, situacion: null };
+    const reFueros = new RegExp(`\\b(${JURISDICCIONES.join("|")})\\s*0*(\\d{1,6})\\s*/\\s*(\\d{4})\\b`);
+    const mExp = reFueros.exec(sinAcentos(enc));
+    if (mExp) { out.fuero = mExp[1]; out.numero = mExp[2]; out.anio = mExp[3]; }
+    out.caratula = campoEtiquetado(enc, "Car[aá]tula")
+        || (/([^\n]{3,120}\s+c\/\s*[^\n]{3,160})/i.exec(enc) || [])[1] || null;
+    if (out.caratula) out.caratula = out.caratula.trim();
+    out.dependencia = campoEtiquetado(enc, "Dependencia")
+        || ((/(JUZGADO|C[AÁ]MARA|TRIBUNAL|SECRETAR[IÍ]A)[^\n]{0,80}/i.exec(enc) || [])[0] || null);
+    out.situacion = campoEtiquetado(enc, String.raw`Sit\.?\s*Actual|Situaci[oó]n`);
+    return out;
+}
+
+/** Ubica la tabla de actuaciones (OFICINA|FECHA|TIPO|DESCRIPCION|A FS.) y mapea columnas por nombre de header (los ids j_idt* son dinamicos; los headers son estables). */
+function extraerActuaciones(det) {
+    const norm = (h) => sinAcentos(h).toLowerCase();
+    let tabla = null;
+    for (const t of det.tablas || []) {
+        const hs = t.headers.map(norm);
+        if (hs.some((h) => h.includes("tipo")) && hs.some((h) => h.includes("fecha"))) { tabla = t; break; }
+    }
+    if (!tabla) {
+        for (const t of det.tablas || []) {
+            const hs = t.headers.map(norm);
+            if (hs.some((h) => h.includes("fecha")) && t.headers.length >= 3) { tabla = t; break; }
+        }
+    }
+    if (!tabla) return { tabla: null, actuaciones: [] };
+    const hs = tabla.headers.map(norm);
+    const idx = (...claves) => hs.findIndex((h) => claves.some((k) => h.includes(k)));
+    const iFecha = idx("fecha"), iTipo = idx("tipo"), iOficina = idx("oficina"), iDesc = idx("descripcion", "detalle"), iFs = idx("fs", "foja");
+    // MAPEO POR ETIQUETA (preferido): el portal embebe la etiqueta en el texto
+    // de cada celda ("Oficina: 058", "Fecha: 8/06/2026", "Tipo actuacion: X",
+    // "Detalle: Y") y antepone una columna de enlaces "Descargar Ver" SIN
+    // header propio, que corre todo el mapeo posicional un lugar (verificado
+    // en vivo 12/06/2026). El posicional queda como fallback.
+    const porEtiqueta = (f, re) => {
+        for (const c of f) { const m = re.exec(String(c || "")); if (m) return m[1].trim(); }
+        return null;
+    };
+    const actuaciones = tabla.filas.map((f, i) => {
+        const eFecha = porEtiqueta(f, /^Fecha:\s*(.+)$/i);
+        const eTipo = porEtiqueta(f, /^Tipo(?:\s+de)?\s*actuaci[oó]n:\s*(.+)$/i);
+        const eOficina = porEtiqueta(f, /^Oficina:\s*(.+)$/i);
+        const eDesc = porEtiqueta(f, /^Detalle:\s*(.+)$/i);
+        const eFojas = porEtiqueta(f, /^(?:A\s*)?F(?:s\.?|ojas)\.?:?\s*(.+)$/i);
+        // Si la fila viene etiquetada, NO usar fallback posicional para los
+        // campos sin etiqueta propia (la columna de enlaces corre los indices;
+        // verificado en vivo: fojas posicional devolvia el Detalle). La celda
+        // de fojas real no trae etiqueta: se reconoce por forma ("119 / 119").
+        const conEtiquetas = eFecha !== null || eTipo !== null || eDesc !== null;
+        const fecha = eFecha ?? (iFecha >= 0 ? (f[iFecha] || "") : "");
+        const tipo = eTipo ?? (conEtiquetas ? "" : (iTipo >= 0 ? (f[iTipo] || "") : ""));
+        const oficina = eOficina ?? (conEtiquetas ? "" : (iOficina >= 0 ? (f[iOficina] || "") : ""));
+        const descripcion = eDesc ?? (conEtiquetas ? "" : (iDesc >= 0 ? (f[iDesc] || "") : f.join(" | ")));
+        const fojas = eFojas ?? (conEtiquetas
+            ? ([...f].map((c) => String(c || "").trim()).reverse().find((c) => /^\d+(\s*\/\s*\d+)?$/.test(c)) || "")
+            : (iFs >= 0 ? (f[iFs] || "") : ""));
+        return {
+            orden: i,
+            fecha, fechaIso: fechaAIso(fecha), tipo, oficina, descripcion, fojas,
+            // Enlace Descargar/Ver presente: insumo para pjn_descargar_documento_actuacion (pendiente eje 1.1.b)
+            descargable: f.some((c) => /^(Descargar|Ver)(\s+(Descargar|Ver))*$/i.test(String(c || "").trim())),
+            celdas: f,
+        };
+    });
+    return { tabla, actuaciones };
 }
 
 /** Estamos en pagina de resultados? de expediente? */
@@ -545,6 +664,99 @@ export function registerAllTools(server) {
         }
     });
 
+    server.tool("exportar_expediente_md", "Exporta el expediente abierto a la boveda como carpeta por causa: una nota Markdown por actuacion + nota indice (MOC) 00-INDICE.md, todas con frontmatter YAML (fuero, expediente, anio, fecha, tipo, tags) para Obsidian. Destino default: variable de entorno LEGAL_BOVEDA o D:\\DERECHO\\Cerebro Digital\\Casos. ATENCION: exporta datos REALES sin anonimizar; no subir a servicios externos (NotebookLM incluido) sin anonimizacion previa.", {
+        carpeta_destino: z.string().optional().describe("Carpeta base de casos. Default: env LEGAL_BOVEDA o D:\\DERECHO\\Cerebro Digital\\Casos"),
+        alias_causa: z.string().optional().describe("Nombre de la carpeta de la causa (se recomienda un alias opaco). Default: FUERO-NUMERO-ANIO"),
+        sobrescribir: z.boolean().optional().describe("true reescribe las notas de actuacion existentes. Default false: las existentes se conservan (export incremental); el indice se regenera siempre."),
+    }, async (args) => {
+        try {
+            const page = await getPage();
+            if (!urlEs(page, "expediente.seam")) return err(`No hay un expediente abierto (URL actual: ${page.url()}). Abrilo con consultar_expediente / abrir_expediente y reintenta.`);
+            const det = await scrapeExpediente(page, { maxFilas: 2000 });
+            const datos = parseDatosExpediente(det);
+            const { tabla, actuaciones } = extraerActuaciones(det);
+            if (!actuaciones.length) return err(`No se encontro la tabla de actuaciones en la pagina. Tablas detectadas: ${(det.tablas || []).map((t) => t.headers.join("|")).join(" // ") || "ninguna"}.`);
+
+            const base = (args.carpeta_destino || BOVEDA_DEFAULT).trim();
+            const alias = slugArchivo(args.alias_causa || [datos.fuero || "PJN", datos.numero || "s-n", datos.anio || "s-a"].join("-"), 80);
+            const dirCausa = path.join(base, alias);
+            const dirAct = path.join(dirCausa, "actuaciones");
+            fs.mkdirSync(dirAct, { recursive: true });
+
+            // Orden cronologico ascendente solo si TODAS las fechas parsean
+            // (numeracion NNN estable entre exportes incrementales); si alguna
+            // falla, se respeta el orden del portal.
+            const ordenadas = actuaciones.every((a) => a.fechaIso)
+                ? [...actuaciones].sort((a, b) => (a.fechaIso === b.fechaIso ? a.orden - b.orden : (a.fechaIso < b.fechaIso ? -1 : 1)))
+                : [...actuaciones];
+
+            const fechaExp = new Date().toISOString();
+            const fmCausa = (extra) => `---\n` +
+                `causa: "${yamlVal(alias)}"\n` +
+                `fuero: "${yamlVal(datos.fuero || "")}"\n` +
+                `expediente: "${yamlVal(datos.numero || "")}"\n` +
+                `anio: "${yamlVal(datos.anio || "")}"\n` +
+                `caratula: "${yamlVal(datos.caratula || "")}"\n` +
+                `dependencia: "${yamlVal(datos.dependencia || "")}"\n` +
+                extra +
+                `source: "Poder Judicial de la Nacion - Consulta publica"\n` +
+                `source_url: "${yamlVal(det.url)}"\n` +
+                `export_date: "${fechaExp}"\n`;
+
+            let creadas = 0, conservadas = 0;
+            const indiceFilas = [];
+            ordenadas.forEach((a, i) => {
+                const n = String(i + 1).padStart(3, "0");
+                const nombre = `${n}-${a.fechaIso || "sin-fecha"}-${slugArchivo(a.tipo || "actuacion", 40)}.md`;
+                indiceFilas.push({ n, nombre, a });
+                const ruta = path.join(dirAct, nombre);
+                if (!args.sobrescribir && fs.existsSync(ruta)) { conservadas++; return; }
+                const nota = fmCausa(
+                    `fecha_actuacion: "${yamlVal(a.fechaIso || a.fecha)}"\n` +
+                    `tipo: "${yamlVal(a.tipo)}"\n` +
+                    `oficina: "${yamlVal(a.oficina)}"\n` +
+                    `fojas: "${yamlVal(a.fojas)}"\n` +
+                    `documento_descargable: ${a.descargable ? "true" : "false"}\n`) +
+                    `tags:\n  - PJN\n  - actuacion\n  - causa/${alias}\n---\n\n` +
+                    `# ${a.fecha || "Sin fecha"} - ${a.tipo || "Actuacion"}\n\n` +
+                    `${a.descripcion || "(sin descripcion)"}\n\n` +
+                    `**Fila original del portal:** ${a.celdas.join(" | ")}\n\n` +
+                    `---\n*Exportado desde la consulta publica del PJN el ${fechaExp}. Verificar siempre en la fuente oficial.*\n`;
+                fs.writeFileSync(ruta, nota, "utf8");
+                creadas++;
+            });
+
+            // Indice MOC: se regenera completo en cada exporte. El encabezado
+            // se recorta desde "Datos Generales" (antes viene boilerplate de
+            // accesibilidad y menu del portal, verificado en vivo).
+            const encMoc = (det.encabezado || "").replace(/^.*?(?=Datos Generales|Expediente:)/, "");
+            let moc = fmCausa(`tipo: "indice-causa"\nsituacion: "${yamlVal(datos.situacion || "")}"\ntotal_actuaciones: ${ordenadas.length}\n`) +
+                `tags:\n  - PJN\n  - expediente-judicial\n  - MOC\n  - causa/${alias}\n---\n\n` +
+                `# ${datos.caratula || alias}\n\n## Datos del expediente\n\n${encMoc}\n\n` +
+                `## Actuaciones (${ordenadas.length})\n\n| # | Fecha | Tipo | Nota |\n|---|---|---|---|\n`;
+            for (const { n, nombre, a } of indiceFilas) {
+                moc += `| ${n} | ${a.fecha || "-"} | ${a.tipo || "-"} | [[actuaciones/${nombre.replace(/\.md$/, "")}]] |\n`;
+            }
+            for (const t of det.tablas || []) {
+                if (t === tabla) continue;
+                moc += `\n## Anexo - ${t.headers.join(" | ")}\n\n| ${t.headers.join(" | ")} |\n|${"---|".repeat(t.headers.length)}\n`;
+                for (const f of t.filas) moc += `| ${f.slice(0, t.headers.length).join(" | ")} |\n`;
+            }
+            moc += `\n---\n*Exportado desde la consulta publica del PJN el ${fechaExp}. DATOS REALES sin anonimizar: pasar por anonimizacion antes de subir a cualquier servicio externo.*\n`;
+            fs.writeFileSync(path.join(dirCausa, "00-INDICE.md"), moc, "utf8");
+
+            return txt(`# Exportacion a boveda completada\n\n` +
+                `**Carpeta de la causa:** ${dirCausa}\n` +
+                `**Notas de actuacion:** ${creadas} creadas${conservadas ? `, ${conservadas} conservadas (ya existian; sobrescribir=true para regenerarlas)` : ""}\n` +
+                `**Indice (MOC):** ${path.join(dirCausa, "00-INDICE.md")} (regenerado)\n` +
+                `**Actuaciones detectadas:** ${ordenadas.length}${tabla.total > tabla.filas.length ? ` - ATENCION: la pagina reporta ${tabla.total}; se exporto lo visible` : ""}\n\n` +
+                `> Las notas contienen DATOS REALES. Antes de subirlas a NotebookLM u otro servicio: anonimizar (eje 2 del plan).`);
+        }
+        catch (error) {
+            return err(`Error en exportar_expediente_md: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
+
     server.tool("generar_certificacion_forense", "Genera certificacion de trazabilidad de la pagina actualmente abierta en la sesion HITL: URL, timestamp UTC y hash SHA-256 del HTML descargado.", {}, async () => {
         try {
             const page = await getPage();
@@ -619,7 +831,7 @@ Todas las consultas corren DENTRO de un navegador interactivo (HITL). El captcha
 2. \`consultar_expediente\` (jurisdiccion+numero+anio) o \`pjn_buscar_expediente_por_parte\` (solo DEMANDADO, limite del portal publico).
 3. Si aparece captcha: el usuario lo resuelve en la ventana y avisa "listo" -> \`continuar_tras_captcha\` (NUNCA relanzar la busqueda con captcha pendiente: lo anula).
 4. \`abrir_expediente\` / \`obtener_actuaciones\` / \`pjn_obtener_resoluciones_expediente\`.
-5. \`volver_a_resultados\` para iterar; \`exportar_expediente\` / \`generar_certificacion_forense\` para documentar.
+5. \`volver_a_resultados\` para iterar; \`exportar_expediente\` (Markdown al chat), \`exportar_expediente_md\` (carpeta por causa en la boveda: nota por actuacion + indice MOC) / \`generar_certificacion_forense\` para documentar.
 6. \`finalizar_hitl_browser\` al terminar todo.
 
 ## Jurisdicciones
