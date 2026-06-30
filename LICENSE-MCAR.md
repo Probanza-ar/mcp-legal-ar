@@ -65,7 +65,7 @@ del usuario. Nada en este repositorio constituye asesoramiento juridico.
 A los fines de la Ley 11.723 y concordantes, el autor deja constancia
 de que este software fue creado por Cristian Aboitiz y que la fecha de
 primera publicacion figura en el historial de commits del repositorio
-(github.com/cristianaboitiz-eng/).
+(github.com/Probanza-ar/).
 
 ---
 

@@ -10,7 +10,7 @@
 #  Requiere repo publico (no pide credenciales). Usa curl + tar.
 # ============================================================
 set -euo pipefail
-OWNER="cristianaboitiz-eng"
+OWNER="Probanza-ar"
 REPO="mcp-legal-ar"
 BRANCH="main"
 

@@ -9,7 +9,7 @@
 #  AppData), asi que no se toca.
 # ============================================================
 $ErrorActionPreference = 'Stop'
-$owner  = 'cristianaboitiz-eng'
+$owner  = 'Probanza-ar'
 $repo   = 'mcp-legal-ar'
 $branch = 'main'
 
