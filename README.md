@@ -70,10 +70,9 @@ Claude Desktop
 
 ## Uso profesional
 
-El hub acerca fuentes oficiales, no reemplaza la revisión del abogado. Dos guías fijan cómo usarlo con rigor:
+El hub acerca fuentes oficiales, no reemplaza la revisión del abogado. La directiva operativa de uso (estados de confianza, verificación antes de citar, anonimización) viaja en el propio código y se expone vía `instructions` del MCP: se carga sola al conectar, no hace falta leer un archivo aparte.
 
-- [Directiva operativa](docs/uso-profesional-verificacion.md) - la capa corta: estados de confianza, verificación antes de citar y anonimización. El hub la expone además vía `instructions` del MCP, así que se carga sola al conectar.
-- [Búsqueda de jurisprudencia y doctrina](docs/busqueda-jurisprudencia-doctrina.md) - método completo para fundar un escrito: de las voces al fallo, control de vigencia y firmeza, y cómo llevar el hallazgo a la pieza.
+El método completo está en la guía [Búsqueda de jurisprudencia y doctrina](docs/busqueda-jurisprudencia-doctrina.md): de las voces al fallo, control de vigencia y firmeza, y cómo llevar el hallazgo a la pieza.
 
 ---
 
