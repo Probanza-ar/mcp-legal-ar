@@ -68,6 +68,8 @@ Claude Desktop
 
 **Certificados TLS:** cada conector usa validación TLS estándar. La única excepción es SCBA (`sentencias.scba.gov.ar`), cuyo servidor oficial presenta un certificado con cadena de confianza incompleta. Para ese conector la verificación está desactivada de forma aislada dentro de su propio cliente HTTP, sin afectar al resto del stack. El tráfico involucrado es exclusivamente de lectura de jurisprudencia pública, sin credenciales ni datos del usuario.
 
+**Control profesional del output.** El hub acerca fuentes jurídicas argentinas auditables, pero no reemplaza la revisión del abogado. Para flujos de informe diario, PDF a Markdown, anonimización y resumen estructurado, ver la guía de [flujos de accesibilidad y verificación profesional](docs/flujos-accesibilidad-verificacion.md).
+
 ---
 
 ## Uso profesional
@@ -357,6 +359,20 @@ MCP_LEGAL_CONNECTORS=infoleg,juba,saij,csjn
 Prefijos válidos: `bora`, `bopba`, `infoleg`, `normativapba`, `juba`, `pjn`, `pjnjuris`, `ptn`, `tfn`, `saij`, `scba`, `portalpjn`, `juscaba`, `csjn`, `mev`.
 
 Así el abogado de fuero provincial levanta 4 o 5 conectores (unas 60 tools) y el hub deja de superar el límite del cliente. Sin la variable, se levantan los 15 como siempre. Al arrancar, el log confirma cuáles quedaron activos.
+
+---
+
+## Flujos de uso profesional
+
+Además de las consultas directas desde Claude Desktop, el hub puede integrarse en flujos locales de trabajo. Dos casos frecuentes:
+
+- informe diario de causas con fuentes y fecha de consulta visibles;
+- PDF local a Markdown, anonimización y resumen estructurado revisable.
+
+La guía completa está en [`docs/flujos-accesibilidad-verificacion.md`](docs/flujos-accesibilidad-verificacion.md). Incluye controles de omisiones, estados de confianza (`VERIFICADO`, `INFERIDO`, `NO VERIFICADO`, `CONFLICTO`, `URGENTE`) y plantillas en:
+
+- [`templates/informe-diario-causas.md`](templates/informe-diario-causas.md)
+- [`templates/resumen-pdf-anonimizado.md`](templates/resumen-pdf-anonimizado.md)
 
 ---
 
